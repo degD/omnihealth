@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from gpiozero import LED, Servo
+import serial
 
 # ============================================================================
 # WIRING GUIDE
@@ -86,6 +87,14 @@ DOOR_MAX_ANGLE = 100  # 100% = 100 degrees
 WINDOW_MAX_ANGLE = 60  # 100% = 60 degrees
 
 # ============================================================================
+# SERIAL COMMUNICATION CONFIGURATION
+# ============================================================================
+
+SERIAL_PORT = "/dev/ttyAMA0"  # Built-in UART on Raspberry Pi
+SERIAL_BAUD_RATE = 115200
+SERIAL_TIMEOUT = 1  # seconds
+
+# ============================================================================
 # AUDIO CONFIGURATION
 # ============================================================================
 
@@ -140,14 +149,15 @@ status_led = None
 lights = {}
 servos = {}
 current_state = "waiting"  # "waiting" or "transcribing"
+serial_port = None
 
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
 
 def initialize_gpio():
-    """Initialize all GPIO devices."""
-    global status_led, lights, servos
+    """Initialize all GPIO devices and serial connection."""
+    global status_led, lights, servos, serial_port
     
     status_led = LED(PIN_STATUS_LED)
     lights = {
@@ -161,16 +171,33 @@ def initialize_gpio():
     }
     
     print("GPIO devices initialized")
+    
+    # Initialize serial connection to ESP32
+    try:
+        serial_port = serial.Serial(
+            port=SERIAL_PORT,
+            baudrate=SERIAL_BAUD_RATE,
+            timeout=SERIAL_TIMEOUT
+        )
+        print(f"Serial port {SERIAL_PORT} opened at {SERIAL_BAUD_RATE} baud")
+    except Exception as e:
+        print(f"Warning: Could not open serial port {SERIAL_PORT}: {e}")
+        print("Continuing without ESP32 communication...")
+        serial_port = None
+    
     status_led.on()
 
 def cleanup_gpio():
-    """Cleanup all GPIO devices."""
+    """Cleanup all GPIO devices and close serial connection."""
     if status_led:
         status_led.off()
     for light in lights.values():
         light.off()
     for servo in servos.values():
         servo.mid()
+    if serial_port and serial_port.is_open:
+        serial_port.close()
+        print("Serial port closed")
     print("GPIO cleanup complete")
 
 def set_status_led_state(new_state):
@@ -214,6 +241,51 @@ def extract_temperature(command):
     return None
 
 # ============================================================================
+# SERIAL COMMUNICATION FUNCTIONS
+# ============================================================================
+
+def send_to_esp32(message_dict):
+    """Send JSON message to ESP32 via serial."""
+    if serial_port is None or not serial_port.is_open:
+        return
+    
+    try:
+        json_string = json.dumps(message_dict) + "\n"
+        serial_port.write(json_string.encode('utf-8'))
+        print(f"Sent to ESP32: {json_string.strip()}")
+    except Exception as e:
+        print(f"Error sending to ESP32: {e}")
+
+def build_light_message(light_ids, action):
+    """Build JSON message for light control."""
+    return {
+        "type": "light",
+        "ids": light_ids,
+        "action": action
+    }
+
+def build_servo_message(device, action, percentage=None):
+    """Build JSON message for servo control."""
+    message = {
+        "type": "servo",
+        "device": device,
+        "action": action
+    }
+    if percentage is not None:
+        message["percentage"] = percentage
+    return message
+
+def build_ac_message(action, temperature=None):
+    """Build JSON message for AC control."""
+    message = {
+        "type": "ac",
+        "action": action
+    }
+    if temperature is not None:
+        message["temperature"] = temperature
+    return message
+
+# ============================================================================
 # DEVICE CONTROL FUNCTIONS
 # ============================================================================
 
@@ -227,6 +299,10 @@ def control_lights(light_ids, state):
             elif state == "off":
                 lights[light_id].off()
                 print(f"Light {light_id} turned OFF")
+    
+    # Send to ESP32
+    if light_ids:
+        send_to_esp32(build_light_message(light_ids, state))
 
 def control_servo(servo_name, action, percentage=None):
     """Control servo (door or window)."""
@@ -238,9 +314,11 @@ def control_servo(servo_name, action, percentage=None):
     if action == "open":
         servo.max()
         print(f"{servo_name.capitalize()} opened (100%)")
+        send_to_esp32(build_servo_message(servo_name, action))
     elif action == "close":
         servo.min()
         print(f"{servo_name.capitalize()} closed (0%)")
+        send_to_esp32(build_servo_message(servo_name, action))
     elif action == "set" and percentage is not None:
         # Map percentage (0-100) to servo angle range (-90 to 90 in gpiozero)
         if servo_name == "door":
@@ -250,15 +328,19 @@ def control_servo(servo_name, action, percentage=None):
         
         servo.value = angle / 90  # gpiozero uses -1 to 1 range
         print(f"{servo_name.capitalize()} set to {percentage}%")
+        send_to_esp32(build_servo_message(servo_name, action, percentage))
 
 def control_ac(action, temperature=None):
-    """Control air conditioning (dummy - just print)."""
+    """Control air conditioning (dummy - just print and send to ESP32)."""
     if action == "on":
         print("AC turned ON")
+        send_to_esp32(build_ac_message(action))
     elif action == "off":
         print("AC turned OFF")
+        send_to_esp32(build_ac_message(action))
     elif action == "set" and temperature is not None:
         print(f"AC set to {temperature} degrees")
+        send_to_esp32(build_ac_message(action, temperature))
 
 # ============================================================================
 # COMMAND PROCESSING
