@@ -7,7 +7,7 @@ This project is a voice-controlled home automation system built with Raspberry P
 ### Key Features
 - **Offline Speech Recognition**: Uses Vosk for fast, accurate, offline voice recognition.
 - **GPIO Control**: Controls 3 LEDs, 2 servos, and a status LED via Raspberry Pi GPIO.
-- **ESP32 Integration**: Sends JSON commands via UART serial communication to ESP32 for mobile app integration.
+- **ESP32 Integration**: Sends command strings via UART serial communication to ESP32 for mobile app integration.
 - **Real-time Feedback**: Status LED provides visual feedback (solid when waiting, blinking during transcription).
 - **Extensive Testing**: Includes hardware simulation and live voice recognition testing scripts.
 
@@ -90,7 +90,7 @@ This project is a voice-controlled home automation system built with Raspberry P
 ```bash
 python test_speech_pi.py
 ```
-This script validates command processing and JSON message generation without requiring hardware.
+This script validates command processing and string message generation without requiring hardware.
 
 #### Live Voice Recognition Test
 ```bash
@@ -170,9 +170,6 @@ This script tests live voice recognition accuracy with a random subset of comman
 ### Supported Commands
 The system supports the following voice commands:
 
-#### General Commands
-- **"hello"**: Responds with a greeting.
-
 #### Light Control
 - **"turn on one"**: Turns on Light 1.
 - **"turn on two"**: Turns on Light 2.
@@ -208,11 +205,11 @@ The system supports the following voice commands:
 ### Test Scripts
 
 #### `test_speech_pi.py`
-- **Purpose**: Simulates hardware and validates JSON message generation.
+- **Purpose**: Simulates hardware and validates string message generation.
 - **Features**:
   - Mock objects for LEDs, servos, and serial communication.
   - Tests command processing logic without requiring Raspberry Pi hardware.
-  - Ensures correct JSON messages are generated for ESP32 communication.
+  - Ensures correct command strings are generated for ESP32 communication.
 
 #### `test_vosk_live.py`
 - **Purpose**: Tests live voice recognition accuracy.

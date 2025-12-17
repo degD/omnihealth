@@ -21,7 +21,6 @@ modelPath = "vosk-model-small-en-us-0.15"
 
 # All available commands (from speech-pi.py)
 ALL_COMMANDS = [
-    "hello",
     "turn on one",
     "turn on two",
     "turn on three",

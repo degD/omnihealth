@@ -104,7 +104,6 @@ modelPath = "vosk-model-small-en-us-0.15"
 
 # Predefined commands for Vosk
 commands = [
-  "hello",
   "turn on one",
   "turn on two",
   "turn on three",
@@ -150,6 +149,8 @@ lights = {}
 servos = {}
 current_state = "waiting"  # "waiting" or "transcribing"
 serial_port = None
+esp32_listener_thread = None
+esp32_listener_running = False
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -157,7 +158,7 @@ serial_port = None
 
 def initialize_gpio():
     """Initialize all GPIO devices and serial connection."""
-    global status_led, lights, servos, serial_port
+    global status_led, lights, servos, serial_port, esp32_listener_thread, esp32_listener_running
     
     status_led = LED(PIN_STATUS_LED)
     lights = {
@@ -180,6 +181,11 @@ def initialize_gpio():
             timeout=SERIAL_TIMEOUT
         )
         print(f"Serial port {SERIAL_PORT} opened at {SERIAL_BAUD_RATE} baud")
+        
+        # Start ESP32 listener thread
+        esp32_listener_running = True
+        esp32_listener_thread = threading.Thread(target=listen_for_esp32_commands, daemon=True)
+        esp32_listener_thread.start()
     except Exception as e:
         print(f"Warning: Could not open serial port {SERIAL_PORT}: {e}")
         print("Continuing without ESP32 communication...")
@@ -189,6 +195,13 @@ def initialize_gpio():
 
 def cleanup_gpio():
     """Cleanup all GPIO devices and close serial connection."""
+    global esp32_listener_running, esp32_listener_thread
+    
+    # Stop ESP32 listener thread
+    if esp32_listener_thread and esp32_listener_thread.is_alive():
+        esp32_listener_running = False
+        esp32_listener_thread.join(timeout=2)
+    
     if status_led:
         status_led.off()
     for light in lights.values():
@@ -219,6 +232,36 @@ def blink_status_led():
         time.sleep(0.15)
     status_led.on()  # Ensure it's on after transcribing
 
+def listen_for_esp32_commands():
+    """Listen for incoming commands from ESP32 on serial port."""
+    global esp32_listener_running
+    
+    if serial_port is None or not serial_port.is_open:
+        return
+    
+    print("ESP32 listener thread started")
+    
+    while esp32_listener_running:
+        try:
+            if serial_port.in_waiting > 0:
+                # Read a line from serial port
+                line = serial_port.readline().decode('utf-8').strip()
+                
+                if line:
+                    # Validate against commands list (case-insensitive)
+                    if line.lower() in [cmd.lower() for cmd in commands]:
+                        print(f"Received from ESP32: {line}")
+                        process_command(line)
+                    # Silently discard invalid commands
+            else:
+                # Small sleep to avoid busy waiting
+                time.sleep(0.01)
+        except Exception as e:
+            # Continue running even if there's an error
+            time.sleep(0.1)
+    
+    print("ESP32 listener thread stopped")
+
 def extract_light_ids(command):
     """Extract light IDs from command like 'turn on 1 2 3' or 'turn off 1'."""
     numbers = re.findall(r'\d+', command)
@@ -244,52 +287,23 @@ def extract_temperature(command):
 # SERIAL COMMUNICATION FUNCTIONS
 # ============================================================================
 
-def send_to_esp32(message_dict):
-    """Send JSON message to ESP32 via serial."""
+def send_to_esp32(command):
+    """Send command string to ESP32 via serial."""
     if serial_port is None or not serial_port.is_open:
         return
     
     try:
-        json_string = json.dumps(message_dict) + "\n"
-        serial_port.write(json_string.encode('utf-8'))
-        print(f"Sent to ESP32: {json_string.strip()}")
+        command_string = command + "\n"
+        serial_port.write(command_string.encode('utf-8'))
+        print(f"Sent to ESP32: {command}")
     except Exception as e:
         print(f"Error sending to ESP32: {e}")
-
-def build_light_message(light_ids, action):
-    """Build JSON message for light control."""
-    return {
-        "type": "light",
-        "ids": light_ids,
-        "action": action
-    }
-
-def build_servo_message(device, action, percentage=None):
-    """Build JSON message for servo control."""
-    message = {
-        "type": "servo",
-        "device": device,
-        "action": action
-    }
-    if percentage is not None:
-        message["percentage"] = percentage
-    return message
-
-def build_ac_message(action, temperature=None):
-    """Build JSON message for AC control."""
-    message = {
-        "type": "ac",
-        "action": action
-    }
-    if temperature is not None:
-        message["temperature"] = temperature
-    return message
 
 # ============================================================================
 # DEVICE CONTROL FUNCTIONS
 # ============================================================================
 
-def control_lights(light_ids, state):
+def control_lights(light_ids, state, command=None):
     """Turn lights on or off."""
     for light_id in light_ids:
         if light_id in lights:
@@ -301,10 +315,10 @@ def control_lights(light_ids, state):
                 print(f"Light {light_id} turned OFF")
     
     # Send to ESP32
-    if light_ids:
-        send_to_esp32(build_light_message(light_ids, state))
+    if command:
+        send_to_esp32(command)
 
-def control_servo(servo_name, action, percentage=None):
+def control_servo(servo_name, action, percentage=None, command=None):
     """Control servo (door or window)."""
     if servo_name not in servos:
         return
@@ -314,11 +328,9 @@ def control_servo(servo_name, action, percentage=None):
     if action == "open":
         servo.max()
         print(f"{servo_name.capitalize()} opened (100%)")
-        send_to_esp32(build_servo_message(servo_name, action))
     elif action == "close":
         servo.min()
         print(f"{servo_name.capitalize()} closed (0%)")
-        send_to_esp32(build_servo_message(servo_name, action))
     elif action == "set" and percentage is not None:
         # Map percentage (0-100) to servo angle range (-90 to 90 in gpiozero)
         if servo_name == "door":
@@ -328,19 +340,23 @@ def control_servo(servo_name, action, percentage=None):
         
         servo.value = angle / 90  # gpiozero uses -1 to 1 range
         print(f"{servo_name.capitalize()} set to {percentage}%")
-        send_to_esp32(build_servo_message(servo_name, action, percentage))
+    
+    # Send to ESP32
+    if command:
+        send_to_esp32(command)
 
-def control_ac(action, temperature=None):
+def control_ac(action, temperature=None, command=None):
     """Control air conditioning (dummy - just print and send to ESP32)."""
     if action == "on":
         print("AC turned ON")
-        send_to_esp32(build_ac_message(action))
     elif action == "off":
         print("AC turned OFF")
-        send_to_esp32(build_ac_message(action))
     elif action == "set" and temperature is not None:
         print(f"AC set to {temperature} degrees")
-        send_to_esp32(build_ac_message(action, temperature))
+    
+    # Send to ESP32
+    if command:
+        send_to_esp32(command)
 
 # ============================================================================
 # COMMAND PROCESSING
@@ -350,50 +366,47 @@ def process_command(command):
     """Parse and execute a recognized command."""
     command = command.lower().strip()
     
-    if command == "hello":
-        print("Hello! How can I help?")
-    
     # Light commands
-    elif command.startswith("turn on"):
+    if command.startswith("turn on"):
         light_ids = extract_light_ids(command)
         if light_ids:
-            control_lights(light_ids, "on")
+            control_lights(light_ids, "on", command)
     
     elif command.startswith("turn off"):
         light_ids = extract_light_ids(command)
         if light_ids:
-            control_lights(light_ids, "off")
+            control_lights(light_ids, "off", command)
     
     # Door commands
     elif command == "open door":
-        control_servo("door", "open")
+        control_servo("door", "open", command=command)
     elif command == "close door":
-        control_servo("door", "close")
+        control_servo("door", "close", command=command)
     elif command.startswith("set door"):
         percentage = extract_percentage(command)
         if percentage is not None:
-            control_servo("door", "set", percentage)
+            control_servo("door", "set", percentage, command)
     
     # Window commands
     elif command == "open window":
-        control_servo("window", "open")
+        control_servo("window", "open", command=command)
     elif command == "close window":
-        control_servo("window", "close")
+        control_servo("window", "close", command=command)
     elif command.startswith("set window"):
         percentage = extract_percentage(command)
         if percentage is not None:
-            control_servo("window", "set", percentage)
+            control_servo("window", "set", percentage, command)
     
     # AC commands
     elif "air conditioning" in command or "ac" in command:
         if "turn on" in command:
-            control_ac("on")
+            control_ac("on", command=command)
         elif "turn off" in command:
-            control_ac("off")
+            control_ac("off", command=command)
         elif "set" in command:
             temperature = extract_temperature(command)
             if temperature is not None:
-                control_ac("set", temperature)
+                control_ac("set", temperature, command)
 
 # ============================================================================
 # AUDIO CALLBACK
