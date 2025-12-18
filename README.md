@@ -2,11 +2,11 @@
 
 ## Project Overview
 
-This project is a voice-controlled home automation system built with Raspberry Pi, Vosk speech recognition, and ESP32 integration. It enables hands-free control of lights, servos (simulating doors and windows), and air conditioning through natural language voice commands.
+This project is a voice-controlled home automation system built with Raspberry Pi, Vosk speech recognition, and ESP32 integration. It enables hands-free control of lights, a servo (window), and air conditioning through natural language voice commands.
 
 ### Key Features
 - **Offline Speech Recognition**: Uses Vosk for fast, accurate, offline voice recognition.
-- **GPIO Control**: Controls 3 LEDs, 2 servos, and a status LED via Raspberry Pi GPIO.
+- **GPIO Control**: Controls 3 LEDs, 1 servo (window), and a status LED via Raspberry Pi GPIO.
 - **ESP32 Integration**: Sends command strings via UART serial communication to ESP32 for mobile app integration.
 - **Real-time Feedback**: Status LED provides visual feedback (solid when waiting, blinking during transcription).
 - **Extensive Testing**: Includes hardware simulation and live voice recognition testing scripts.
@@ -135,7 +135,7 @@ This script tests live voice recognition accuracy with a random subset of comman
 ### Parts List
 - **LEDs**: 3x standard LEDs (any color)
 - **Resistors**: 4x 220Ω resistors (for LEDs)
-- **Servos**: 2x standard servos (e.g., SG90)
+- **Servos**: 1x standard servo (window)
 - **Status LED**: 1x standard LED (any color)
 - **Raspberry Pi**: Any model with GPIO support
 - **Breadboard**: For connections
@@ -149,10 +149,6 @@ This script tests live voice recognition accuracy with a random subset of comman
 - **Light 3**: GPIO 22 → 220Ω resistor → LED anode (+) → LED cathode (-) → GND
 
 #### Servos
-- **Door Servo**:
-  - Signal: GPIO 18
-  - Power: 5V (RPi 5V pin)
-  - Ground: GND
 - **Window Servo**:
   - Signal: GPIO 19
   - Power: 5V (RPi 5V pin)
@@ -180,11 +176,6 @@ The system supports the following voice commands:
 - **"turn off three"**: Turns off Light 3.
 - **"turn off one two three"**: Turns off all lights.
 
-#### Door Control
-- **"open door"**: Fully opens the door.
-- **"close door"**: Fully closes the door.
-- **"set door [percentage] percent"**: Sets the door to a specific percentage (e.g., "set door fifty percent").
-
 #### Window Control
 - **"open window"**: Fully opens the window.
 - **"close window"**: Fully closes the window.
@@ -198,7 +189,7 @@ The system supports the following voice commands:
 ### Notes
 - Commands are case-insensitive.
 - Ensure clear pronunciation for accurate recognition.
-- Percentages for door and window control must be in increments of 25% (0%, 25%, 50%, 75%, 100%).
+-- Percentages for window control must be in increments of 25% (0%, 25%, 50%, 75%, 100%).
 
 ## Testing
 

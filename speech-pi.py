@@ -23,14 +23,13 @@ import serial
 #   Light 2: GPIO 27 ──[220Ω]──LED+ | LED- ──GND
 #   Light 3: GPIO 22 ──[220Ω]──LED+ | LED- ──GND
 #
-# SERVOS - 2x devices
+# SERVOS - 1x device
 # ─────────────────────────────────────────────────────────────────────────
 # Each servo connection (3 wires):
 #   Servo Signal (yellow/orange) ──> GPIO Pin (PWM)
 #   Servo Power (red)            ──> 5V (RPi 5V pin)
 #   Servo Ground (brown/black)   ──> GND (common ground)
 #
-#   Door Servo:   Signal ──GPIO 18 | Power ──5V | GND ──GND
 #   Window Servo: Signal ──GPIO 19 | Power ──5V | GND ──GND
 #
 # NOTE: Using RPi's 5V pin is acceptable for demo/short-term use, but
@@ -58,7 +57,7 @@ import serial
 # 5V CONNECTIONS
 # ─────────────────────────────────────────────────────────────────────────
 # RPi 5V pin (pin 2 or 4) supplies:
-#   - Servo power (both Door and Window servos)
+#   - Servo power (Window servo)
 #   - Consider adding 470µF capacitor across servo power for stability
 #
 
@@ -72,7 +71,6 @@ PIN_LIGHT_2 = 27
 PIN_LIGHT_3 = 22
 
 # Servos
-PIN_SERVO_DOOR = 18
 PIN_SERVO_WINDOW = 19
 
 # Status LED
@@ -83,7 +81,6 @@ PIN_STATUS_LED = 23
 # ============================================================================
 
 # Servo angle mappings (percentage to actual angle)
-DOOR_MAX_ANGLE = 100  # 100% = 100 degrees
 WINDOW_MAX_ANGLE = 60  # 100% = 60 degrees
 
 # ============================================================================
@@ -118,15 +115,9 @@ commands = [
   "turn off one three",
   "turn off two three",
   "turn off one two three",
-  "open door",
-  "close door",
   "open window",
   "close window",
-  "set door zero percent",
-  "set door twenty five percent",
-  "set door fifty percent",
-  "set door seventy five percent",
-  "set door one hundred percent",
+  
   "set window zero percent",
   "set window twenty five percent",
   "set window fifty percent",
@@ -167,7 +158,6 @@ def initialize_gpio():
         3: LED(PIN_LIGHT_3),
     }
     servos = {
-        "door": Servo(PIN_SERVO_DOOR),
         "window": Servo(PIN_SERVO_WINDOW),
     }
     
@@ -270,7 +260,7 @@ def extract_light_ids(command):
     return sorted(list(light_ids))
 
 def extract_percentage(command):
-    """Extract percentage value from command like 'set door 45 percent'."""
+    """Extract percentage value from command like 'set window 45 percent'."""
     match = re.search(r'(\d+)\s+percent', command)
     if match:
         return int(match.group(1))
@@ -319,12 +309,12 @@ def control_lights(light_ids, state, command=None):
         send_to_esp32(command)
 
 def control_servo(servo_name, action, percentage=None, command=None):
-    """Control servo (door or window)."""
+    """Control servo (window)."""
     if servo_name not in servos:
         return
-    
+
     servo = servos[servo_name]
-    
+
     if action == "open":
         servo.max()
         print(f"{servo_name.capitalize()} opened (100%)")
@@ -333,14 +323,10 @@ def control_servo(servo_name, action, percentage=None, command=None):
         print(f"{servo_name.capitalize()} closed (0%)")
     elif action == "set" and percentage is not None:
         # Map percentage (0-100) to servo angle range (-90 to 90 in gpiozero)
-        if servo_name == "door":
-            angle = (percentage / 100) * DOOR_MAX_ANGLE - 90
-        else:  # window
-            angle = (percentage / 100) * WINDOW_MAX_ANGLE - 90
-        
+        angle = (percentage / 100) * WINDOW_MAX_ANGLE - 90
         servo.value = angle / 90  # gpiozero uses -1 to 1 range
         print(f"{servo_name.capitalize()} set to {percentage}%")
-    
+
     # Send to ESP32
     if command:
         send_to_esp32(command)
@@ -376,16 +362,6 @@ def process_command(command):
         light_ids = extract_light_ids(command)
         if light_ids:
             control_lights(light_ids, "off", command)
-    
-    # Door commands
-    elif command == "open door":
-        control_servo("door", "open", command=command)
-    elif command == "close door":
-        control_servo("door", "close", command=command)
-    elif command.startswith("set door"):
-        percentage = extract_percentage(command)
-        if percentage is not None:
-            control_servo("door", "set", percentage, command)
     
     # Window commands
     elif command == "open window":

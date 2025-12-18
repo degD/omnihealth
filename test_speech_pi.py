@@ -74,7 +74,7 @@ def extract_light_ids(command):
     return sorted(list(light_ids))
 
 def extract_percentage(command):
-    """Extract percentage value from command like 'set door 45 percent'."""
+    """Extract percentage value from command like 'set window 45 percent'."""
     import re
     match = re.search(r'(\d+)\s+percent', command)
     if match:
@@ -100,7 +100,6 @@ lights = {
 }
 
 servos = {
-    "door": MockServo(18),
     "window": MockServo(19),
 }
 
@@ -134,7 +133,7 @@ def control_lights(light_ids, state, command=None):
         send_to_esp32(command)
 
 def control_servo(servo_name, action, percentage=None, command=None):
-    """Control servo (door or window)."""
+    """Control servo (window)."""
     if servo_name not in servos:
         return
     
@@ -181,16 +180,6 @@ def process_command(command):
         light_ids = extract_light_ids(command)
         if light_ids:
             control_lights(light_ids, "off", command)
-    
-    # Door commands
-    elif command == "open door":
-        control_servo("door", "open", command=command)
-    elif command == "close door":
-        control_servo("door", "close", command=command)
-    elif command.startswith("set door"):
-        percentage = extract_percentage(command)
-        if percentage is not None:
-            control_servo("door", "set", percentage, command)
     
     # Window commands
     elif command == "open window":
@@ -249,10 +238,7 @@ def main():
     run_test("Light - Turn off with duplicates", "turn off 1 1 1 2")
     run_test("Light - Invalid light ID ignored", "turn on 1 5 9")
     
-    # Servo tests
-    run_test("Servo - Open door", "open door")
-    run_test("Servo - Close door", "close door")
-    run_test("Servo - Set door percentage", "set door 45 percent")
+    # Servo tests (window only)
     run_test("Servo - Open window", "open window")
     run_test("Servo - Close window", "close window")
     run_test("Servo - Set window percentage", "set window 75 percent")
